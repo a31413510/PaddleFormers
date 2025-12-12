@@ -447,6 +447,10 @@ class Trainer:
         self.model = model
         self.criterion = criterion
 
+        # Set use_cache for the model
+        if getattr(self.model, "config", None) is not None:
+            self.model.config.use_cache = self.args.use_cache
+
         self.compute_metrics = compute_metrics
         self.preprocess_logits_for_metrics = preprocess_logits_for_metrics
         self.processing_class = processing_class
@@ -480,10 +484,16 @@ class Trainer:
             )
 
         if self.args.pipeline_model_parallel_size > 1 and self.args.use_hybrid_parallel:
-            assert (isinstance(model, LoRAModel) and isinstance(model.model, PipelineLayer)) or isinstance(
-                model, PipelineLayer
-            ), "Only support pipeline parallel mode when model is PipelineLayer!!!"
-
+            if HAS_PADDLEFLEET:
+                assert (
+                    isinstance(model, LoRAModel) and isinstance(model.model, (PaddleFleetPipelineLayer, PipelineLayer))
+                ) or isinstance(
+                    model, (PaddleFleetPipelineLayer, PipelineLayer)
+                ), f"Only support pipeline parallel mode when model is PaddleFleetPipelineLayer or PipelineLayer!!! but get {type(model.model)}"
+            else:
+                assert (isinstance(model, LoRAModel) and isinstance(model.model, PipelineLayer)) or isinstance(
+                    model, PipelineLayer
+                ), f"Only support pipeline parallel mode when model is PipelineLayer!!! but get {type(model.model)}"
         default_callbacks = DEFAULT_CALLBACKS + get_reporting_integration_callbacks(self.args.report_to)
         callbacks = default_callbacks if callbacks is None else default_callbacks + callbacks
         self.callback_handler = CallbackHandler(
@@ -2979,7 +2989,8 @@ class Trainer:
                     param.initialize()
 
             return model
-
+        if HAS_PADDLEFLEET and isinstance(model, LoRAModel):
+            model = model.model
         if HAS_PADDLEFLEET and isinstance(model, PaddleFleetPipelineLayer):
             prepare_pipeline_inputs_func = (
                 model._prepare_pipeline_inputs_func if hasattr(model, "_prepare_pipeline_inputs_func") else None
